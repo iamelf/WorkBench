@@ -24,7 +24,7 @@ $.timeTracker.cookieExpireDate = ($.now()/1000) + (60*60*24*365)*50;
 
 $.timeTracker.lastCheckTime = new Date();
 $.timeTracker.recStartTime = new Date();
-$.timeTracker.currentUrl = "";
+$.timeTracker.currentUrl = "IDLE";
 $.timeTracker.Counter = 0;
 
 /* TO ENHANCE, use Google ID */
@@ -86,9 +86,6 @@ curl -XPOST 'localhost:9200/test/type1/1/_update' -d '{
 */
 
 function updateDatastore() {
-	if ($.timeTracker.currentUrl == "") {
-		return;
-	}
 	/* Debug */
 	var t = new Date();
 	console.log(t.toLocaleTimeString(), $.timeTracker.Counter, ": Url = ", $.timeTracker.currentUrl, " time = ", Math.round(($.timeTracker.lastCheckTime-$.timeTracker.recStartTime)/1000));
@@ -109,83 +106,33 @@ function updateDatastore() {
 	})
 }
 
-
-/*
-chrome.runtime.onMessage.addListener(
-    function(request, sender, sendResponse) {
-        _log((sender && sender.tab ?
-          "from a content script:" + sender.tab.url : "from an extension") + " focus state = " + request.focus);
-		$.timeTracker.update (sender.tab.url, request.focus)
-    }
-);
-*/
-
 $.timeTracker.StartNewRec = function(url) {
-	if (url !="") {
-		//Todo: call ES API to add an record into database.
-		$.timeTracker.lastCheckTime = new Date();
-		if ($.timeTracker.currentUrl != "") updateDatastore();
-		
-		$.timeTracker.currentUrl = url;
-		$.timeTracker.Counter ++;
-		$.timeTracker.recStartTime = new Date();
-		$.timeTracker.lastCheckTime = new Date();
-		updateDatastore();
-	}
-	_log($.timeTracker);
-}
-
-$.timeTracker.UpdateExistingRec = function() {
-	//Todo: call ES API to update the last updated time. Nothing else changed.
+	//call ES API to add an record into database.
+	$.timeTracker.currentUrl = url;
+	$.timeTracker.Counter ++;
+	$.timeTracker.recStartTime = new Date();
 	$.timeTracker.lastCheckTime = new Date();
-	_log("Page ("+$.timeTracker.currentUrl+") has been viewed for " + (($.timeTracker.lastCheckTime - $.timeTracker.recStartTime)/1000) + " milliseconds");
 	updateDatastore();
 }
 
-$.timeTracker.AmendMissingRec = function(url) {
-	//Todo: call ES API to add a record which start time = lastCheckTime, and last update time = now.
-	_log($.timeTracker);
-	if ($.timeTracker.currentUrl != "" && url !="") {
-		$.timeTracker.currentUrl = url;
-		$.timeTracker.recStartTime = $.timeTracker.lastCheckTime;
-		$.timeTracker.lastCheckTime = new Date();
-		updateDatastore();
-		
-		$.timeTracker.Counter ++;
-		$.timeTracker.currentUrl = "";
-	}
+$.timeTracker.UpdateExistingRec = function() {
+	//call ES API to update the last updated time. Nothing else changed.
+	$.timeTracker.lastCheckTime = new Date();
+	updateDatastore();
 }
 
-$.timeTracker.SetIdleRec = function() {
-	if ($.timeTracker.currentUrl != "") {
-		$.timeTracker.Counter ++;
-		$.timeTracker.currentUrl = "";
-	}
-	_log($.timeTracker);
-	//Todo: Only move the record pointer to the next. Do nothing else.
-}
 
-$.timeTracker.updateRecord = function (url, focused) {
+$.timeTracker.updateRecord = function (url) {
 	//_log("Update record..." + url + " " + focused);
 	$.timeTracker.lastCheckTime = new Date();
 	
-	if (focused) {
-		if (url.toUpperCase() != $.timeTracker.currentUrl.toUpperCase()) {
-			_log("----Create a new record = " + 	url);
-			$.timeTracker.StartNewRec(url);
-		} else {
-			_log("----Update the existing record " + url + " time = " + (new Date() - $.timeTracker.recStartTime));
-			$.timeTracker.UpdateExistingRec();
-		}
-	} else {
-		_log("Noooooo focus!!")
-		if (url.toUpperCase() != $.timeTracker.currentUrl.toUpperCase()) {
-			_log("----Append a missing record!!!!!!!!!!!! " + url + " time = " + (new Date() - $.timeTracker.lastCheckTime));
-			$.timeTracker.AmendMissingRec(url);
-		} else {
-			_log("----Set Idle Record----  " + url + " Has been idle for " + (new Date() - $.timeTracker.lastCheckTime));
-			$.timeTracker.SetIdleRec("");
-		}
+	if (url.toUpperCase() != $.timeTracker.currentUrl.toUpperCase()) { 
+	// If the current focus page is NOT the last focus page, first update the current page
+		$.timeTracker.UpdateExistingRec();
+		$.timeTracker.StartNewRec(url);
+	} else { 
+	// If the current focus page IS the last focus page
+		$.timeTracker.UpdateExistingRec();
 	}
 	updateCookie ();
 }
@@ -195,12 +142,16 @@ $.timeTracker.getActiveUrl = function () {
 	getInfo.populate = false;
 	chrome.windows.getLastFocused(getInfo, function (win) {
 		_log("This window is focused?? =====" + win.focused);
-		var queryInfo = new Object();
-		queryInfo.active = true;
-		queryInfo.lastFocusedWindow = true;
-		chrome.tabs.query(queryInfo, function (tabs) {
-			$.timeTracker.updateRecord(tabs[0].url, win.focused);
-		})
+		if (!win.focused) {
+			$.timeTracker.updateRecord("IDLE");
+		} else {
+			var queryInfo = new Object();
+			queryInfo.active = true;
+			queryInfo.lastFocusedWindow = true;
+			chrome.tabs.query(queryInfo, function (tabs) {
+				$.timeTracker.updateRecord(tabs[0].url);
+			})
+		}
 	})
 }
 
